@@ -11,6 +11,10 @@ from resume_analyzer.keyword_matching import compare_resume_with_job_description
 from resume_analyzer.preprocessing import preprocess_text
 
 
+KEYWORD_WEIGHT = 0.60
+TFIDF_WEIGHT = 0.40
+
+
 def normalize_text(text):
     """Clean text before scoring."""
     return preprocess_text(text)
@@ -30,32 +34,79 @@ def build_tfidf_matrix(documents):
     return tfidf_matrix
 
 
-def calculate_ats_score(resume_text, job_description):
-    """Calculate a hybrid ATS score between 0 and 100.
-
-    The final score combines:
-    - 70% TF-IDF cosine similarity
-    - 30% keyword coverage from the predefined skill dictionary
-
-    This keeps the score balanced. TF-IDF rewards overall text relevance,
-    while keyword coverage makes sure important skills are not undervalued.
-    """
+def calculate_tfidf_similarity_percentage(resume_text, job_description):
+    """Return the resume relevance percentage based on TF-IDF similarity."""
     documents = prepare_documents(resume_text, job_description)
     tfidf_matrix = build_tfidf_matrix(documents)
     similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+    return round(similarity * 100, 2)
 
+
+def calculate_keyword_coverage_percentage(resume_text, job_description):
+    """Return the keyword coverage percentage based on required skills."""
     required_skills, _, matched_skills, _ = compare_resume_with_job_description(
         resume_text,
         job_description,
     )
 
-    if required_skills:
-        keyword_coverage = len(matched_skills) / len(required_skills)
-    else:
-        keyword_coverage = 0
+    if not required_skills:
+        return 0.0
 
-    hybrid_score = (0.7 * similarity + 0.3 * keyword_coverage) * 100
-    return round(hybrid_score, 2)
+    coverage = len(matched_skills) / len(required_skills)
+    return round(coverage * 100, 2)
+
+
+def get_score_label(score):
+    """Map a score to a simple ATS-style label."""
+    if score <= 40:
+        return "Weak Match"
+    if score <= 65:
+        return "Moderate Match"
+    if score <= 80:
+        return "Strong Match"
+    return "Excellent Match"
+
+
+def calculate_ats_score_breakdown(resume_text, job_description):
+    """Return keyword coverage, resume relevance, and final ATS score percentages."""
+    keyword_coverage = calculate_keyword_coverage_percentage(resume_text, job_description)
+    resume_relevance = calculate_tfidf_similarity_percentage(resume_text, job_description)
+
+    final_score = (
+        (KEYWORD_WEIGHT * keyword_coverage) + (TFIDF_WEIGHT * resume_relevance)
+    )
+
+    return {
+        "keyword_coverage": round(keyword_coverage, 2),
+        "resume_relevance": round(resume_relevance, 2),
+        "final_score": round(final_score, 2),
+        "score_label": get_score_label(final_score),
+    }
+
+
+def calculate_ats_score(resume_text, job_description):
+    """Calculate a hybrid ATS score between 0 and 100.
+
+    The final score combines:
+    - 60% keyword coverage from the predefined skill dictionary
+    - 40% TF-IDF cosine similarity
+
+    Keyword coverage keeps the score anchored to required skills, while
+    TF-IDF adds a smaller relevance signal. This keeps the score stable and
+    explainable for a student resume analyzer.
+    """
+    breakdown = calculate_ats_score_breakdown(resume_text, job_description)
+    return breakdown["final_score"]
+
+
+def get_ats_score_label(score):
+    """Compatibility wrapper for the score label helper."""
+    return get_score_label(score)
+
+
+def calculate_ats_score_details(resume_text, job_description):
+    """Compatibility wrapper that returns the full ATS score breakdown."""
+    return calculate_ats_score_breakdown(resume_text, job_description)
 
 
 def extract_skill_matches(resume_text, job_description, limit=8):
