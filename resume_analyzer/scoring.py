@@ -31,15 +31,31 @@ def build_tfidf_matrix(documents):
 
 
 def calculate_ats_score(resume_text, job_description):
-    """Calculate a similarity score between 0 and 100.
+    """Calculate a hybrid ATS score between 0 and 100.
 
-    The score is based on cosine similarity between the resume and the job
-    description after TF-IDF vectorization.
+    The final score combines:
+    - 70% TF-IDF cosine similarity
+    - 30% keyword coverage from the predefined skill dictionary
+
+    This keeps the score balanced. TF-IDF rewards overall text relevance,
+    while keyword coverage makes sure important skills are not undervalued.
     """
     documents = prepare_documents(resume_text, job_description)
     tfidf_matrix = build_tfidf_matrix(documents)
     similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
-    return round(similarity * 100, 2)
+
+    required_skills, _, matched_skills, _ = compare_resume_with_job_description(
+        resume_text,
+        job_description,
+    )
+
+    if required_skills:
+        keyword_coverage = len(matched_skills) / len(required_skills)
+    else:
+        keyword_coverage = 0
+
+    hybrid_score = (0.7 * similarity + 0.3 * keyword_coverage) * 100
+    return round(hybrid_score, 2)
 
 
 def extract_skill_matches(resume_text, job_description, limit=8):
